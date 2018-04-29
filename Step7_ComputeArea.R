@@ -3,14 +3,24 @@
 # Author: cade
 ###############################################################################
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Part 1:EXTRACT BY MASK IN ARCMAP####
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+## List classified files 
+classDir <- "./Output/Classified_Apr29"
+rastClassList <- list.files(classDir, pattern ="_Apr29\\.tif$",full.names = F)
+# extract dates 
+mydates.all <- substr(rastClassList,4,11) 
+#stack rasters 
+classifiedStack <- stack(paste0(classDir,"/",rastClassList))
+names(classifiedStack) <- mydates.all
+# write raster 
+writeRaster(classifiedStack,paste0(classDir,"/","L8_classified_apr29_stack"), format="GTiff", overwrite=T)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Part 1: Extract dates and list classification files####
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## List cropped files 
-rastCropList <- list.files("./Output/Classified", pattern ="_crop\\.tif$",full.names = T)
-mydates.all <- substr(rastCropList,24,31) #! need to fix this
-
-# stack of all classified images clipped to waterways
-class.stack <- stack(rastCropList)
+class.stack <- stack(paste0(classDir, "/L8_classified_apr29_stack_crop.tif"))
 # rename brick
 names(class.stack) <- mydates.all
 
@@ -26,15 +36,16 @@ myShps <- c("BigBreak","LibertyIsland","ShermanIsland","VeniceWard","shruti_wate
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Part 2: Loop Throught Extracts ####
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-area.all <- data.frame(landcover = uniqueClasses)
 
-for (i in 1:length(myShps)) {
+
+for (i in 2:length(myShps)) {
+  area.all <- data.frame(landcover = uniqueClasses)
   # read in shapefile
-  roi <- readOGR(dsn =shapesDir, layer = myShps[4]) #i
+  roi <- readOGR(dsn =shapesDir, layer = myShps[i]) #i
   #mask by shapefile
-  rast.crop <- class.stack
+  #rast.crop <- class.stack
   rast.crop <- mask(crop(class.stack, roi),roi, df=T) 
-  area.all$Layer <- myShps[5] #i 
+  area.all$Layer <- myShps[i] #i 
   for (j in 1:nlayers(rast.crop)){
     layer1 <- rast.crop[[j]] #j
     #mydate = paste0(unlist(strsplit(names(layer1),"_"))[2],"_area_km2")
@@ -44,9 +55,15 @@ for (i in 1:length(myShps)) {
     names(area_km2) <- mydate
     area.all <- cbind(area_km2,area.all)
   }
+  write.csv(area.all,paste0("./Output/AreaCalc_Apr29/",myShps[i],".csv"))
 }
 
-write.csv(area.all,paste0("./Output/AreaCalc/",myShps[5],".csv"))
+
+
+
+
+
+
 
 
 setwd("E:\\cade\\SPOT5Take5_11_25_2016\\S5_Classification")

@@ -7,15 +7,15 @@
 #### Part 1: List Images and get test data####
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #list classifed images
-dirClassified <-  "./Output/Classified"
+dirClassified <-  "./Output/Classified_Apr29"
 my.raster = list.files(dirClassified, pattern=".tif$", full.names = T)
 
 # get test data
-test.50 <- readOGR(dsn='./Data/L8_2014-2015_test',"testData_60_100")
+testData <- readOGR(dsn='./Data/L8_2014-2015_test',"testData_40_Apr29")
 
 ## determine uniqueClasses
-uniqueClasses <- unique(test.50$Class)
-uniqueClasses <- rev(uniqueClasses)
+uniqueClasses <- unique(testData$Class)
+#uniqueClasses <- rev(uniqueClasses)
 uniqueClasses
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -33,10 +33,10 @@ for (i in 1:length(my.raster)) {
 	r.date
 
 	## separate out test.data by data and ensure it matches the raster data
-	test.dates <-test.50[test.50$Date == r.date,] 
+	test.dates <-testData[testData$Date == r.date,] 
 	
 	# extract observed data from the rasters by test dates 
-	obs <- extract(classified.rast, test.dates) # numbered values 
+	obs <- raster::extract(classified.rast, test.dates) # numbered values 
 	# convered observed data from numeric data to classfied value
 	test.obs.factor <- uniqueClasses[obs] 
 	# class my test data says that it is 
@@ -72,4 +72,4 @@ for (i in 1:length(my.raster)) {
 	removeTmpFiles(h=0)
 }
 
-write.csv(cm.all3, paste0(dirClassified,"/cm_20142015Test.csv"))
+write.csv(cm.all3, paste0(dirClassified,"/cm_20142015Test_apr29.csv"))
