@@ -8,21 +8,25 @@ require(ggplot2)
 require(lubridate)
 require(scales)
 require(ggthemes)
-###################
-setwd("C:\\Users\\cade\\Documents\\PhDMerced\\Spr18Courses\\CommunityEcology\\csvarea")
-myFiles <- list.files(pattern =".csv")
+##############################################
+areaDir <- "E:\\cade\\CommEcolProj\\Output\\AreaCalc_Apr29"
+myFiles <- list.files(areaDir, pattern =".csv", full.names = F)
 
 for (i in 1:length(myFiles)){
-  myArea <- read_csv(myFiles[i]) # i 
-  myArea
-  myArea$landcover <- c("EMR","FLT","SAV","water")
+  # read in area csv and remove the unnecessary columns 
+  myArea <- read_csv(paste0(areaDir,"/",myFiles[i])) %>% select(-c(X1)) # i 
+  # write the landcovers correctly
+  myArea$landcover <- c("EMR","FLT","SAV","Water")
+  # remove x
   names(myArea) <- sub("X","",names(myArea))
   
+  # melt data talbe into the correct format
   meltArea <- melt(myArea)
   meltArea <- na.omit(meltArea)
   names(meltArea) <- c("Class","layer","Date","Area")
   meltArea$Date <- ymd(meltArea$Date)
   
+  # plot the scatter of all 4 variables
   MyScatterplot <- meltArea %>%
     ggplot(aes(x = Date, y = Area, col = Class)) +
     geom_point() + geom_line() +scale_x_date(breaks = pretty_breaks(10)) + 
@@ -33,8 +37,28 @@ for (i in 1:length(myFiles)){
   
   nameArea <- unlist(strsplit(myFiles[i],"[.]")) #i
   nameArea1 <- nameArea[1]
-  ggsave(paste0("areaplot_colorCorrect_",nameArea1,".png"))
+  ggsave(paste0(areaDir,"/areaplot_colorCorrect_",nameArea1,".png"))
   
+  # plot all  without water 
+  noWater <- meltArea %>% filter(!Class == "Water") %>%
+    ggplot(aes(x = Date, y = Area, col = Class)) +
+    geom_point() + geom_line() +scale_x_date(breaks = pretty_breaks(10)) + 
+    scale_y_continuous( name ="Area (km^2)" ) + # breaks = seq(0, 10, by = 2)
+    scale_color_manual(values=c("#FFAA00", "#C500FF", "#55FF00")) +
+    theme_classic()
+  noWater
+  ggsave(paste0(areaDir,"/areaplot_colorCorrect_",nameArea1,"_nowater.png"))
+  
+  # plot all 4 without water 
+  noWater2 <- meltArea %>% filter(!Class == "Water") %>%
+    ggplot(aes(x = Date, y = Area, col = Class)) +
+    geom_point() + geom_smooth() +scale_x_date(breaks = pretty_breaks(10)) + 
+    scale_y_continuous( name ="Area (km^2)" ) + # breaks = seq(0, 10, by = 2)
+    scale_color_manual(values=c("#FFAA00", "#C500FF", "#55FF00")) +
+    theme_classic()
+  noWater2
+  ggsave(paste0(areaDir,"/areaplot_colorCorrect_",nameArea1,"_nowater_smooth.png"))
+
 }
 
 
