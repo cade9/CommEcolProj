@@ -1,0 +1,42 @@
+---
+title: "Compare CSTARS points"
+output: html_notebook
+---
+
+```{r}
+require(rgdal)
+require(raster)
+```
+
+
+
+```{r}
+points2014 <- readOGR(dsn = "E:\\cade\\Classification_CSTARS\\Delta_2014_fieldata_pts",
+                      layer = "Allteams_point_data_2014_Final1")
+
+```
+```{r}
+# in classified
+class2014 <- list.files("./Output/Classified_Apr29", pattern = "(20141028|20141231).*tif$",full.names = T)
+
+r1 <- raster(class2014[[1]])
+
+pointData <- spTransform(points2014, CRS = crs(r1))
+pointData@coords <- pointData@coords[,c(1:2)]
+myExtract <- raster::extract(r1, pointData, sp = T)
+
+
+# 11-25-2014
+# 10-28-2014
+
+
+test <- points2014 %>%
+  filter(Lifeform == "FLT")
+
+p<-dplyr::st_as_sf(points2014)
+lines<-lines%>%filter(X>400 & Y=="YES")
+
+world.map <- subset(world.map, AREA > 30000)
+
+```
+

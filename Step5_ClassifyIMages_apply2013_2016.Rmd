@@ -1,0 +1,126 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+###  working directories 
+
+```{r}
+outdir = "./Output/Classified"
+```
+
+
+### load in training data full 
+
+```{r}
+shp.ex <- read.csv("./Data/L8_2014-2015_test/L8_20142015_traingData.csv" ,header = T)
+shp.ex <- na.omit(shp.ex)
+dim(shp.ex) 
+```
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Part 2: Convert test and trainig data to a spatial points ####
+# dataframe
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```{r}
+###### read it in as spatial dataframe and reproject
+shp.ex.sp2 <- SpatialPointsDataFrame(shp.ex[,c("coords.x1","coords.x2")],
+                                     data = shp.ex[1:11])
+proj4string(shp.ex.sp2)=CRS("+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+#writeOGR(shp.ex.sp2, dsn = getwd(), "L8_20142015_test_trainingDate", driver ="ESRI Shapefile")
+
+```
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Part 3: Split the training and test data ####
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+```{r}
+
+
+# this will be how much data the test data gets, so if you want 30% then enter .3
+splitType = 0.4
+
+# split by date and by class 
+df.sp <- split(shp.ex.sp2, list(shp.ex.sp2$Date, shp.ex.sp2$Class))
+
+# sample a certain percentage denoted by splitType
+my.samples <- lapply(df.sp, function(x) x[sample(1:nrow(x), size=splitType*nrow(x), FALSE),])
+# combine all the test samples
+testData <- do.call(rbind, my.samples)
+# using the uniqueID set all other samples to test
+trainData <- shp.ex.sp2[!(shp.ex.sp2$unqID %in% testData$unqID),]
+
+##### write training and test csv and shapefiles 
+test.df <- as.data.frame(testData)
+train.df <- as.data.frame(trainData)
+write.csv(test.df, "./Data/L8_2013_2016/L8_test_40_Jun6.csv")
+write.csv(train.df, "./Data/L8_2013_2016/L8_train_60_Jun6.csv")
+writeOGR(testData , dsn= "./Data/L8_2013_2016","testData_40_Jun6", driver= "ESRI Shapefile", overwrite_layer = T)
+writeOGR(trainData, dsn= "./Data/L8_2013_2016","trainData_60_Jun6", driver= "ESRI Shapefile", overwrite_layer = T)
+
+```
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Part 4: Create randomForest model ####
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```{r}
+###### Random Forest Model Test the Training data
+trainData <- readOGR(dsn= "./Data/L8_2013_2016","trainData_60_Jun6")
+
+mod_RF <- randomForest(Class ~ UltraBlue + Blue + Green + Red + NIR + SWIR + SWIR2, data = trainData, importance = T, ntree=1000)
+mod_RF
+# save model
+saveRDS(mod_RF, "./Data/L8_2013_2016/mod_RF_60_Jun6.rds")
+
+#### NOT NEEDED: Typical RandomForest test statistics ####
+#apply to test data just as a check
+mod_RF_test <- predict(mod_RF, testData)
+#confusiom Matrix Random Forest
+mod_RF_conMatrix <- confusionMatrix( data = mod_RF_test,
+		reference = testData$Class)
+mod_RF_conMatrix 
+
+```
+
+
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Part 4: Apply random forest to imagery
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```{r}
+my.raster = list.files(path = "./Data/L8_2013_2016", pattern = ".tif$", full.names = T)
+outdir = "./Output/Classified_2013_2016_Jun6"
+
+for (i in 2:length(my.raster)) {
+	
+	#load in raster and get date
+	L8.raster <- brick(my.raster[i]) #i
+	# rename raster 
+	names(L8.raster) <-  c("Aerosol","UltraBlue", "Blue","Green","Red","NIR","SWIR","SWIR2")
+	
+	##apply prediction to image
+	classified_rast <- predict(L8.raster,mod_RF)
+	
+	#create raster
+	# get date of the raster for naming purposes
+	r.date = unlist(strsplit(my.raster[i],"[/]")) #i
+	r.date <- substr(r.date[4],11,18)  
+	r.date
+	rastername2=paste0("L8_",r.date, "_classified_60_Jun6")
+	## write raster 
+	writeRaster(classified_rast, paste0(outdir,"\\",rastername2), format="GTiff",
+			overwrite=T) #,datatype = "INT2S" 
+	rm(L8.raster)
+	rm(classified_rast)                          
+	removeTmpFiles(h=0)
+}
+```
+
+
+

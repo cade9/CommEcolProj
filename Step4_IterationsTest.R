@@ -42,7 +42,8 @@ for (i in 1:100){
 	###### randomForest #########
 	#predict RF with test data just spectra
 	df_RF <- randomForest(Class ~ UltraBlue + Blue + Green + Red + NIR + SWIR + SWIR2, data = train.70, importance = T)
-	
+	importance(df_RF)
+	varImpPlot(df_RF)
 	#apply to test data
 	df_RF_test <- predict(df_RF, test.70) #, type="class")
 	

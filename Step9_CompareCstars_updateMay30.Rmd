@@ -1,0 +1,444 @@
+---
+title: "Step 9 - CSTARS Vs. MultiSpectral"
+author: "cade"
+date: "May 30 2018"
+output: html_notebook
+---
+### Description 
+Two part script:
+
+1) Extracts stratified random samples from landsat 8 most recently classified file first and then applies to CSTARS classification.
+
+- L8 ---> Hyperspectral/S5
+2) Extracts stratified random samples from hypersepctral data and then applies to multispectral datasets
+
+- Hyperspectral ---> L8(x2)/S5(2x)
+
+- This approach is likely more accurate because it uses hyperspectral data as the reference
+
+*List of input files:*
+
+
+*List of output files:*
+
+
+#### Load packages 
+
+```{r}
+require(data.table)
+require(plyr)
+require(raster)
+require(rgdal)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(rgeos)
+require(caret)
+
+```
+
+#### Step 1: Convert CSTARS Classification to 4 classes
+
+This was completed in ENVI using the post classification toolset and the ROI tool
+
+1) In main envi. Tools -> post classification -> reassign groups 
+
+2) Create ROIS of each area to reassign values --> note masked areas were reassigned with the value 9. EMR = 1, FLT = 2, SAV = 3, water = 1
+
+Follow the instructions on this website;
+http://www.harrisgeospatial.com/Support/SelfHelpTools/HelpArticles/HelpArticles-Detail/TabId/2718/ArtMID/10220/ArticleID/18580/How-to-change-the-classification-values-pixel-values-in-an-ENVI-Classic-classification-image.aspx
+
+3) Save as a tiff in ArcMap to ensure can be read into R 
+
++ The output file is located "E:/cade/Classification_CSTARS/2015/201509_02_63_mosaic_v2_complete_Copy_regrouped_renumbered_arcmap"
+
+**Error:** There was an error when trying to use the extent function in the stratifiedSample tool
+therefore all the rasters had to be cropped to the different study areas before values were extracted. For CSTARS classification, it was more computation efficient to crop the rasters by study area using the Extract by Mask tool. 
+
+The output rasters are loocated in:
+"E:/cade/Classification_CSTARS/2015" with the subregion name appended to the file name listed above.
+
+#### Step 2: Read in Hyperspectral and Multispectral Classifications
+
+Set directories
+```{r}
+# set directories for hyperspectral classifcation and multispectral classifcation
+hyperDir <-"E:\\cade\\Classification_CSTARS"
+multiDir <- "E:/cade/CommEcolProj/Data/MultiRasters"
+```
+
+CSTARS Classification
+```{r}
+# read in shrutis AVIRIS classification
+shrutiClass <- raster(paste0(hyperDir,"/2015/201509_02_63_mosaic_v2_complete_Copy_regrouped_renumbered_arcmap.tif"))
+NAvalue(shrutiClass) <- 0  
+
+```
+
+MultiSpectral Classification
+
++ MultiSpectral rasters had to be cropped to waterway mask to ensure stratified sampling was done correctly.
+
++ Located in 'E:/cade/CommEcolProj/Data/MultiRasters'
+
++ All were cropped using extract by mask in ArcMap and shruti_waterways_merge.shp
+
+```{r}
+# read in the closest multi spectral classifcation image 
+# list of raster images
+rasterList <- list.files(multiDir, pattern = "*_crop\\.tif$", full.names= T)
+```
+
+List of shapefiles for study areas 
+```{r}
+# need a list of the shape files and to extract the extent below 
+shpDir <- "./Data/Vector/DifferentArea_CropBoxes"
+shpList <- list.files(shpDir, pattern = "shp$")[c(1,2,5,6,9)]
+shpList <- gsub(".shp","", shpList)
+shpList
+```
+
+
+#### Step 3: Extract values l8 -> cstars
+
+
+
+```{r}
+# out  directory for extractions
+dirOut <- "./Output/CompareAVIRIS"
+
+# create empty confusion matrix table
+cm.all3 <- NULL
+
+# empty count
+nCount <- NULL 
+
+# select raster L8 from most recent classification
+# ! make this better by not referencing to 2
+L8Rast <- raster(rasterList[2]) 
+
+# new raster list
+rastCompList <- rasterList[-2]
+
+for (i in 1:length(shpList)){
+     # read in shapefile
+    subArea <- shpList[i] #i
+    shpFile <- readOGR(shpDir, subArea) #i 
+    
+    # crop raster
+    L8RastCrop <- crop(mask(L8Rast,shpFile), shpFile)
+    
+    # count pixels
+    layer.freq <- freq(L8RastCrop, useNA="no")
+    n1 <- ceiling(min(layer.freq[,"count"]) * 0.6)
+    n2 <- data.frame(subregion = subArea,
+                     numberSamples = n1)
+    nCount <- rbind(n2,nCount)
+    
+    
+      for(j in 1:length(rastCompList)){
+      # read in second raster to sample
+      rast <- raster(rastCompList[j]) #j
+      NAvalue(rast) <- 0
+      
+          for(x in 1:100){
+          
+          # iteration
+          iteration = x
+        
+          rSample <- sampleStratified(L8RastCrop, size = n1, xy = TRUE, sp=TRUE, na.rm = TRUE) 
+          
+          # count number of pixels
+          #plyr::count(as.vector(rSample$L8_20150812_classified_60_Apr29))
+
+          # sample pixels
+          # Extract at a lower resolution image
+          testExt <- raster::extract(rast, rSample, sp= TRUE) %>% 
+            na.omit() 
+
+          # change names of L8 raster in extract table
+          names(testExt)[4] <- "L8Class" 
+          
+          # confusion matrix
+          mod_RF_conMatrix <- confusionMatrix(data = testExt[[5]],
+                                              reference = testExt$L8Class) 
+          mod_RF_conMatrix
+          
+          # name of the raster that intial raster is being tested against
+          rasterName <- names(testExt)[5]
+          
+          cmFileName <- paste0(dirOut,"\\",rasterName,"_",subArea,"_CMoutputMay30_it",x,".txt")
+          
+          ## save cm output
+          cm <-capture.output(print(mod_RF_conMatrix), file = cmFileName, append = TRUE) 
+          
+          ## add accuracy to a table use str(cm) to determine what the variables are called
+          overall <- mod_RF_conMatrix$overall
+          overall.accuracy <- overall['Accuracy']
+          ## will compute the accuracy statistics for all
+          byC <- mod_RF_conMatrix$byClass
+          prod.EMR <- byC['Class: 1','Sensitivity']
+          prod.FLT <- byC['Class: 2','Sensitivity']
+          prod.SAV <- byC['Class: 3','Sensitivity']
+          prod.water <- byC['Class: 4','Sensitivity']
+          user.EMR <- byC['Class: 1','Pos Pred Value']
+          user.FLT <- byC['Class: 2','Pos Pred Value']
+          user.SAV <- byC['Class: 3','Pos Pred Value']   
+          user.water <- byC['Class: 4','Pos Pred Value']
+          
+          cm.all= data.frame(rasterName, subArea, overall.accuracy, prod.EMR, user.EMR,
+                             prod.FLT, user.FLT, prod.SAV, user.SAV, prod.water, user.water,
+                             row.names= NULL,iteration)
+          cm.all3 = rbind(cm.all,cm.all3)
+        }
+    rm(rast)
+    }
+  rm(L8RastCrop)
+  removeTmpFiles(h=0)
+}
+
+
+write.csv(cm.all3,paste0(dirOut,"\\compareAVIRIScm_L82AVIRISmay30.csv",row.names = F))
+
+```
+
+```{r}
+landsatExt <- read_csv(paste0(dirOut,"\\compareAVIRIScm_L82AVIRISmay30.csv"))[-1]
+```
+
+```{r}
+landAccuracy <- landsatExt %>% 
+  as.tibble() %>%
+  dplyr::select(-iteration)%>%
+  melt() %>% 
+  mutate(percentAcc = value*100) %>%
+  dplyr::rename(AccuracyType = variable) %>%
+  group_by(rasterName, subArea) %>%
+  nest()
+
+plotAccuracy <- function(df){
+  p <- ggplot(df, aes(x = AccuracyType, y = percentAcc)) + geom_boxplot() + theme_classic()
+  p
+}
+
+plotResults <- map(landAccuracy$data,plotAccuracy)
+plotResults
+```
+
+#### Step 4: reverse reference
+
+```{r}
+# out  directory for extractions
+dirOut <- "./Output/CompareAVIRIS"
+
+# create empty confusion matrix table
+cm.all3 <- NULL
+
+# empty count
+nCount <- NULL 
+
+# select raster L8 from most recent classification
+# ! make this better by not referencing to 2
+L8Rast <- raster(rasterList[2]) 
+
+# new raster list
+rastCompList <- rasterList[-2]
+
+for (i in 1:length(shpList)){
+     # read in shapefile
+    subArea <- shpList[i] #i
+    shpFile <- readOGR(shpDir, subArea) #i 
+    
+    # crop raster
+    L8RastCrop <- crop(mask(L8Rast,shpFile), shpFile)
+    
+    # count pixels
+    layer.freq <- freq(L8RastCrop, useNA="no")
+    n1 <- ceiling(min(layer.freq[,"count"]) * 0.6)
+    n2 <- data.frame(subregion = subArea,
+                     numberSamples = n1)
+    nCount <- rbind(n2,nCount)
+    
+    
+      for(j in 1:length(rastCompList)){
+      # read in second raster to sample
+      rast <- raster(rastCompList[j]) #j
+      NAvalue(rast) <- 0
+      
+          for(x in 1:100){
+          
+          # iteration
+          iteration = x
+        
+          rSample <- sampleStratified(L8RastCrop, size = n1, xy = TRUE, sp=TRUE, na.rm = TRUE) 
+          
+          # count number of pixels
+          #plyr::count(as.vector(rSample$L8_20150812_classified_60_Apr29))
+
+          # sample pixels
+          # Extract at a lower resolution image
+          testExt <- raster::extract(rast, rSample, sp= TRUE) %>% 
+            na.omit() 
+
+          # change names of L8 raster in extract table
+          names(testExt)[4] <- "L8Class" 
+          
+          # confusion matrix
+          mod_RF_conMatrix <- confusionMatrix(data = testExt$L8Class,
+                                              reference = testExt[[5]]) 
+          mod_RF_conMatrix
+          
+          # name of the raster that intial raster is being tested against
+          rasterName <- names(testExt)[5]
+          
+          cmFileName <- paste0(dirOut,"\\",rasterName,"_",subArea,"_CMoutputMay30_it",x,".txt")
+          
+          ## save cm output
+          cm <-capture.output(print(mod_RF_conMatrix), file = cmFileName, append = TRUE) 
+          
+          ## add accuracy to a table use str(cm) to determine what the variables are called
+          overall <- mod_RF_conMatrix$overall
+          overall.accuracy <- overall['Accuracy']
+          ## will compute the accuracy statistics for all
+          byC <- mod_RF_conMatrix$byClass
+          prod.EMR <- byC['Class: 1','Sensitivity']
+          prod.FLT <- byC['Class: 2','Sensitivity']
+          prod.SAV <- byC['Class: 3','Sensitivity']
+          prod.water <- byC['Class: 4','Sensitivity']
+          user.EMR <- byC['Class: 1','Pos Pred Value']
+          user.FLT <- byC['Class: 2','Pos Pred Value']
+          user.SAV <- byC['Class: 3','Pos Pred Value']   
+          user.water <- byC['Class: 4','Pos Pred Value']
+          
+          cm.all= data.frame(rasterName, subArea, overall.accuracy, prod.EMR, user.EMR,
+                             prod.FLT, user.FLT, prod.SAV, user.SAV, prod.water, user.water,
+                             row.names= NULL,iteration)
+          cm.all3 = rbind(cm.all,cm.all3)
+        }
+    rm(rast)
+    }
+  rm(L8RastCrop)
+  removeTmpFiles(h=0)
+}
+write.csv(cm.all3,paste0(dirOut,"\\compareAVIRIScm_L82AVIRIS_reverseReference_may30.csv"), row.names=F )
+```
+
+```{r}
+landAccuracyReverse <- read_csv(paste0(dirOut,"\\compareAVIRIScm_L82AVIRIS_reverseReference_may30.csv"))
+landAccuracyRev <- landAccuracyReverse %>% 
+  as.tibble() %>%
+  dplyr::select(-iteration)%>%
+  melt() %>% 
+  mutate(percentAcc = value*100) %>%
+  dplyr::rename(AccuracyType = variable) %>%
+  group_by(rasterName, subArea) %>%
+  nest()
+
+plotAccuracy <- function(df){
+  p <- ggplot(df, aes(x = AccuracyType, y = percentAcc)) + geom_boxplot() + theme_classic()
+  p
+}
+
+plotResults <- map(landAccuracyRev$data,plotAccuracy)
+plotResults
+```
+
+
+
+
+
+#### Step 4: Extract values cstars -> L8
+```{r}
+cm.all3 <- NULL
+
+shrutiCropList <- list.files(paste0(hyperDir,"/2015"), pattern = "\\.*tif$", full.names = T)[-c(1,7)]
+# new raster list
+rastCompList <- rasterList[-1]
+
+for (i in 1:length(shrutiCropList)){
+  # name sub area
+    subArea <- unlist(strsplit(shrutiCropList[i],"[_]")) #i
+    subArea <- subArea[length(subArea)]
+    
+    # crop raster
+    shrutiClassCrop <- raster(shrutiCropList[i]) # i
+    NAvalue(shrutiClassCrop) <- 0
+    
+    # count pixels
+    # layer.freq <- freq(L8RastCrop, useNA="no")
+    # n1 <- ceiling(min(layer.freq[,"count"]) * 0.6)
+    # n2 <- data.frame(subregion = subArea,
+    #                  numberSamples = n1)
+    # nCount <- rbind(n2,nCount)
+    
+  
+    
+      for(j in 1:length(rastCompList)){
+      # read in second raster to sample
+      rast <- raster(rastCompList[j]) #j
+      NAvalue(rast) <- 0
+      
+          for(x in 1:100){
+          
+          # iteration
+          iteration = x
+        
+          rSample <- sampleStratified(shrutiClassCrop, size = 2000, xy = TRUE, sp=TRUE, na.rm = TRUE) 
+          
+          # count number of pixels
+          #plyr::count(as.vector(rSample$L8_20150812_classified_60_Apr29))
+
+          # sample pixels
+          # Extract at a lower resolution image
+          testExt <- raster::extract(rast, rSample, sp= TRUE) %>% 
+            na.omit() 
+
+          # change names of L8 raster in extract table
+          names(testExt)[4] <- "ShrutiClass" 
+          
+          # confusion matrix
+          mod_RF_conMatrix <- confusionMatrix(data = testExt[[5]],
+                                              reference = testExt$ShrutiClass) 
+          mod_RF_conMatrix
+          
+          # name of the raster that intial raster is being tested against
+          rasterName <- names(testExt)[5]
+          
+          cmFileName <- paste0(dirOut,"\\",rasterName,"_",subArea,"_CMoutputMay30_aviris_it",x,".txt")
+          
+          ## save cm output
+          cm <-capture.output(print(mod_RF_conMatrix), file = cmFileName, append = TRUE) 
+          
+          ## add accuracy to a table use str(cm) to determine what the variables are called
+          overall <- mod_RF_conMatrix$overall
+          overall.accuracy <- overall['Accuracy']
+          ## will compute the accuracy statistics for all
+          byC <- mod_RF_conMatrix$byClass
+          prod.EMR <- byC['Class: 1','Sensitivity']
+          prod.FLT <- byC['Class: 2','Sensitivity']
+          prod.SAV <- byC['Class: 3','Sensitivity']
+          prod.water <- byC['Class: 4','Sensitivity']
+          user.EMR <- byC['Class: 1','Pos Pred Value']
+          user.FLT <- byC['Class: 2','Pos Pred Value']
+          user.SAV <- byC['Class: 3','Pos Pred Value']   
+          user.water <- byC['Class: 4','Pos Pred Value']
+          
+          cm.all= data.frame(rasterName, subArea, overall.accuracy, prod.EMR, user.EMR,
+                             prod.FLT, user.FLT, prod.SAV, user.SAV, prod.water, user.water,
+                             row.names= NULL,iteration)
+          cm.all3 = rbind(cm.all,cm.all3)
+        }
+    rm(rast)
+    }
+rm(ShrutiClassCrop)
+removeTmpFiles(h=0)
+}
+
+```
+
+
+
+```{r}
+
+```
+

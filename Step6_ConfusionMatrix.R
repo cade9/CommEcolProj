@@ -62,7 +62,7 @@ for (i in 1:length(my.raster)) {
 	prod.water <- byC['Class: water','Sensitivity']
 	user.EMR <- byC['Class: EMR','Pos Pred Value']
 	user.FLT <- byC['Class: FLT','Pos Pred Value']
-	user.SAV <- byC['Class: SAV','Pos Pred Value']
+	user.SAV <- byC['Class: SAV','Pos Pred Value']   
 	user.water <- byC['Class: water','Pos Pred Value']
 	
 	cm.all= data.frame(r.date, overall.accuracy, prod.EMR, user.EMR, prod.FLT, user.FLT, prod.SAV, user.SAV, prod.water, user.water, row.names= NULL)

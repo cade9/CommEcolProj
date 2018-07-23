@@ -1,4 +1,4 @@
-# TODO: Cleaned up version of add_unqID_toshp.R
+  # TODO: Cleaned up version of add_unqID_toshp.R
 # DATE: 11/26/2016
 # This adds a class column and a unqID column to the shapefiles that have been created from photo-interpretation 
 # Comments added for julia: 3/1/2017
@@ -16,6 +16,7 @@ library(rgeos)
 require(rgeos)
 require(maptools)
 require(sp)
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Completed for 2014-2015 Landsat 8 imagery on 4/10/2018
 # output is 

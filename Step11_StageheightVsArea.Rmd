@@ -1,0 +1,338 @@
+---
+title: "Step 11 - Stagheight Vs. Area"
+author: "cade"
+date: "May 28 2018"
+output:
+  html_document: default
+  html_notebook: default
+---
+## Description 
+This notebook is the description of getting stagehight vs area plots for the 4 different sub-regions.
+
+List of input files:
+
+
+List of output files:
+
+
+Load packages 
+```{r, message = F, warning = F}
+require(tidyverse)
+require(sharpshootR)
+require(lubridate)
+require(data.table)
+require(plyr)
+require(gridExtra)
+require(scales)
+require(ggthemes)
+require(egg)
+source("./R/matchClosest.R")
+source("./R/plotSH.R")
+
+```
+
+### Step 1: Identify Stations Corresponding to Study Areas
+Using the CDEC_stageheight_FINAL2_AMILLION.shp and L8_PathAllocation_diss_Final.shp
+![Example File of Stageheight Path Allocation](./Figures/shpStageheightMap.PNG)
+
+the main station that collects stageheight information for a particular sub-region was recorded. Any secondary stagheight names were recorded as well. For example, Liberty island has more than one sensor in it, but the upper one has represents most of the region.
+
+These were recorded into:
+```{r, warning = F, message = F}
+stageInfo <- read_csv("E:\\cade\\CommEcolProj\\Data\\ancillary\\StageHeightStation.csv")
+stageInfo
+```
+
+**Question: Do we want to do something for the overall area?**
+
+### Step 2: Download stageheight information from CDEC
+
+```{r, warning= F, message=F}
+# Station IDs previous identified in step 1
+stationIDs <- stageInfo$StationID
+stationIDs
+# study period 
+myDates <- c("2014-01-01","2015-12-31")
+
+# create empty cdecData frame
+cdecData <- NULL
+for (i in 1:length(stationIDs)){
+  # Sensor 1 is stageheight
+  # Interval is E for event because certain sensors do not aquire data like DSJ unless envt
+  test1 <- CDECquery(id = stationIDs[i], sensor = 1, interval = "E", start = myDates[1], 
+                    end = myDates[2]) # i,j
+  test1$station <- stationIDs[i] #i
+  cdecData <- rbind(cdecData,test1)
+}
+
+# note that the cdec data according to http://cdec.water.ca.gov/queryCSV.html
+# NOTE: Data is displayed in 4-digit year format.
+# Dates, times, and output will always be Pacific Standard Time.
+
+```
+
+*Example Extracted data*
+```{r,warning= F, message=F}
+head(cdecData)
+```
+
+
+### Step 3: Load in aquistion times for Landsat 8 images and edit cdec station times
+
+*Convert cdec datetime to GMT time to match L8*
+Currently there is no time zone listed in the cdec query so we need to change this to PST time then to GMT
+```{r, warning= F, message=F}
+# clean up cdecData query results
+cdecData <- cdecData %>% as.tibble() %>% 
+  # force datetime to zone pacific
+  mutate(datetime = force_tz(datetime, tzone="US/Pacific")) %>% 
+  # change date time to GMT to match that of L8 aqusitions
+  mutate(datetime_gmt = with_tz(datetime, tzone = "GMT")) %>%
+  # join Station ID information to keep studyArea and class intact 
+  inner_join(stageInfo, by = c("station" = "StationID"))
+
+# write out cdecData 
+##### date written May 28 2018
+#write_csv(cdecData, "./Data/ancillary/cdecStageHeightValues.csv")
+#### ~~~~~~~~~~~~~~~~~~~~~~#
+# COMPLETED DO NOT RE-RUN ####
+
+```
+
+*Example filtered data*
+```{r, warning= F, message=F}
+# show table
+head(cdecData)
+```
+
+**READ IN CDEC FILE**
+```{r, warning = F, message=F}
+# read cdec csv
+# remove PST time zone
+cdecData <- read_csv("./Data/ancillary/cdecStageHeightValues.csv") %>% select(-datetime)
+```
+
+*L8 aquistions* 
+```{r, warning = F}
+# read in L8 aquisition times file 
+L8Aq <- read_csv("./Data/ancillary/L8_times.csv") %>%
+  # create a single datetime column with lubridate 
+  mutate(datetime = ymd_hms(paste(Date, AquTime))) %>%
+  # copy datetime column for matching below
+  mutate(datetime2 = datetime)
+
+# note that according to https://lta.cr.usgs.gov/landsat_dictionary.html#start_time
+# the times of aquistion are recorded in GMT time 
+
+#Example
+head(L8Aq)
+
+```
+
+#### Step 4: Match Station aquistions to closest Landsat 8 time
+
+```{r, warning = F} 
+# group cdec information by station and nest 
+cdecDataNest <- cdecData %>% 
+  group_by(station) %>% 
+  nest()
+
+#Example 
+head(cdecDataNest)
+
+# apply matchClosest function to each dataframe 
+# *** function was created for this dataset not generalized yet 
+# and unnest
+cdecFinal <- cdecDataNest %>%
+  mutate(data = map(cdecDataNest$data,matchClosest, sat = L8Aq, 
+                    satKey = "datetime2", cdecKey ="datetime_gmt")) %>% 
+  unnest()
+
+##write_csv(cdecFinal,"./Data/ancillary/cdecDataFinal.csv")
+##### date written May 28 2018
+#### ~~~~~~~~~~~~~~~~~~~~~~#
+# COMPLETED DO NOT RE-RUN ####
+
+# example cdecFinal dataset that is matched to L8data
+head(cdecFinal)
+```
+
+### Step 5: Create final dataset 
+**Merge L8 area dataset and Stageheight extraction**
+
+**Read in area plots**
+```{r, warning = F}
+# read cdecFinal
+cdecFinal <- read_csv("./Data/ancillary/cdecDataFinal.csv")
+
+# area directory
+areaDir <- "./Output/AreaCalc_Apr29"
+
+# list area calculation files
+areaList <- list.files( areaDir, patter = ".csv$")
+# remove shurtiw water ways
+areaList <- areaList[!areaList %in% "shruti_waterways_merge.csv"]
+areaList <- lapply(paste0(areaDir, "/",areaList), read_csv)
+allArea <- do.call("bind_rows",areaList) %>% select(-c(X1)) 
+
+# write the landcovers correctly
+# ! check revalue function for cleanear version
+landCoverTib <- tibble( landcover = c(1L,2L,3L,4L),
+                        landcoverName = c("EMR","FLT","SAV","Water"))
+allArea2 <- allArea %>% left_join(landCoverTib,  by = c("landcover" = "landcover"))
+
+# remove x from names
+names(allArea2) <- sub("X","",names(allArea2))
+
+# melt to correct format
+meltArea <- melt(allArea2)
+meltArea <- na.omit(meltArea)
+names(meltArea) <- c("StudyArea","Landcover","Date","Area")
+
+#### FINAL STEP ####
+# merge area calculations and stage height
+allData <- merge(cdecFinal, meltArea, by.x = c("Date", "StudyArea"), by.y = c("Date","StudyArea"))
+#change name to stageheight ~! should have done earlier
+names(allData)[6] <- "stageheight"
+
+## write to CSV
+#write_csv(allData, "./Data/ancillary/classAreaAndStageheight.csv")
+##### date written May 28 2018
+#### ~~~~~~~~~~~~~~~~~~~~~~#
+# COMPLETED DO NOT RE-RUN ##
+
+```
+
+
+*Example Final dataset used for plotting*
+```{r}
+head(allData)
+```
+
+
+### Step 6: Plot changes over time 
+
+```{r}
+# read in complete dataset
+allData <- read_csv("./Data/ancillary/classAreaAndStageheight.csv")  %>% 
+  # change date into a Dateformat
+  mutate(Date = ymd(Date)) %>%
+  # group by station
+  group_by(station) %>%
+  # nest
+  nest()
+
+# Plot using plotSH function
+# *** function was created for this dataset not generalized yet 
+
+## !! ask Erin how to then label the names of the plots with the stations and the study areas
+myPlots <- map(allData$data,plotSH)
+
+# could also do correlation plots
+names(myPlots) <- allData$station
+
+# need to figure out how to label this 
+head(allData)
+```
+
+
+### Step 7: Alternative plotting
+Modify dataset so that can plot stageheight and area on the same graph.
+stageheight will then become its own class
+
+```{r}
+# create alternate dataset
+# from cdecFinal edit to match that of the Area dataframe
+cdecCrop <- cdecFinal %>% 
+  # select information for plotting
+  select(station, StudyArea, value, Date) %>% 
+  # rename the station column to Landcover
+  # rename value (stageheight in feet) to Area
+  dplyr::rename(Landcover = station, Area = value) %>%
+  # change date to a date classe
+  mutate(Date = ymd(Date)) %>%
+  # filter for just the mainstation
+  filter(!Landcover== "MAL",!Landcover== "SJJ",!Landcover== "LIB" , !Landcover == "FAL") %>%
+  # change name to stageheight for plotting purposes so that the discrete color matches up
+  # previously they were the name 
+  mutate(Landcover = "stageheight")
+
+
+# example dataset
+head(cdecCrop)
+```
+
+```{r, warning = F}
+# melt the area dataset
+meltArea <- as.tibble(meltArea) %>% mutate(Date = ymd(Date)) 
+```
+
+
+```{r}
+# bind the cropped cdec data to the melted area data
+modifiedData <- bind_rows(cdecCrop, meltArea) %>%
+  # remove NAs
+  na.omit() %>%  
+  # group by the subareas
+  group_by(StudyArea) %>%
+  # nest
+  nest()
+
+head(modifiedData)
+```
+
+
+
+
+
+
+```{r}
+# modified plotting
+plotMod <- function(df){
+  #filter the dataframe to exclude water
+    plotArea <- df %>% filter(!Landcover == "Water" ) %>% 
+      # plot area vs. date and color by landcover
+    ggplot(aes(x = Date, y = Area, col = Landcover)) +
+    geom_point() + geom_line() +scale_x_date(breaks = pretty_breaks(10)) + 
+    scale_y_continuous( name ="Area (km^2)" ) +  # breaks = seq(0, 10, by = 2) 
+    scale_color_manual(values=c("#FFAA00", "#C500FF", "#55FF00","#0070FF")) +
+    theme_classic()
+    plotArea
+}
+
+myPlots <- map(modifiedData$data,plotMod)
+myPlots
+
+```
+
+### Step 8: Plot correlation
+
+!!!! need to FINISH 
+
+```{r,eval = F}
+plotScatter <- function(x){
+  
+}
+
+test <- allData$data[[1]]
+test.filt <- test %>% filter(Landcover == "SAV") 
+plot(test.filt$stageheight,test.filt$Area)
+
+```
+
+
+###### random notes
+```{r, eval = F }
+# for plotting also attempted
+grid.arrange(plotSH, plotArea, nrow=2, ncol=1)
+# 
+library(cowplot)
+plot_grid(plotSH, plotArea, labels=c("Stageheight", "area"), ncol = 1, nrow = 2)
+
+# but both had uneven plot widths
+# https://stackoverflow.com/questions/16255579/how-can-i-make-consistent-width-plots-in-ggplot-with-legends 
+# above was used to find egg
+```
+
+
+

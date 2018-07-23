@@ -1,0 +1,152 @@
+---
+title: "Calculate Area for 2013 to 2016"
+output: html_notebook
+---
+## Description 
+Creates a stack of all the classified files and then crops it to shruti's waterways, but this needs to be modified first 
+
+**Packages**
+```{r, message = F, warning = F}
+require(data.table)
+require(plyr)
+require(raster)
+require(rgdal)
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(rgeos)
+require(caret)
+require(reticulate)
+require(sp)
+require(reticulate)
+source_python("E:\\cade\\CommEcolProj\\maskArea.py")
+
+```
+
+### Step 1: Make New Waterways file 
+shruti_waterways_merge.shp extends past the area that the AVIRIS data is classified for and thus, the orignial water mask from Hestir et al. 2008 needs to be cropped to the s5t5 area. This will be used in the area comparison between AVIRIS and Landsat 8.
+
+** Re-project shruti**
+```{r, class.source = 'bg-warning', class.output ='bg-warning'}
+# Shapefile Directory
+# shpDir <- "E:\\cade\\CommEcolProj\\Data\\Vector\\DifferentArea_CropBoxes"
+
+# s5t5 shruti waterways merge 
+# s5Mask <- readOGR(dsn = shpDir, "shruti_waterways_merge")
+
+# 2008 watermask
+# waterMask2008 <- readOGR(dsn = shpDir, "2008_final_watermask_full_area")
+
+# reproject 2008 watermask
+# waterMask2008_proj <- spTransform(waterMask2008, CRS = crs(s5Mask))
+# write reprojected water mask
+# writeOGR(waterMask2008_proj, dsn = shpDir, "waterMask2008_proj", "ESRI Shapefile")
+###### COMPLETED: 6/10/2018 ######
+
+```
+
+** This did not get the desired effect either**
+```{r, eval = F}
+# clip merge to 2008 watermask 
+# get extent of waterMask2008Proj
+# extMask <- extent(waterMask2008_proj)
+#crop s5 to water mask to keep the 
+# clipH20 <- crop(s5Mask, extMask)
+
+# write clipped file
+# writeOGR(clipH20, dsn = shpDir, "waterMaskCommEcol3", "ESRI Shapefile", overwrite_layer = T)
+###### COMPLETED: 6/11/2018 ######
+
+```
+
+** ACTUAL SOLUTION**
+The s5t5_clipbox2.shp was copied and renamed hyperspectral_boundary.shp
+- the using the editor tool it was oved to the edge of the hypersepctarl imagery
+and the edits were saved 
+- shruti-water ways merged was then cropped by this file and the merge was also cropped by all the other files 
+#### Step 1: Stack all the classifcations 
+
+```{r}
+# List Directories
+classOneDir <- "./Output/Classified_Apr29"
+classTwoDir <- "./Output/Classified_2013_2016_Jun6"
+```
+
+*crop raster*
+```{r}
+#### List Files ####
+# classOneList <- list.files(classOneDir, pattern = "tif$")
+# classTwoList <- list.files(classTwoDir, pattern = "tif$",full.name =T )
+# 
+# # Create Stack
+# L8_2013_2016_stack <- stack(classTwoList)
+# #writeRaster(L8_2013_2016_stack, paste0(classTwoDir,"/L8_2013_2016_classified"), format = "GTiff")
+# 
+# L8_stack <-  paste0(classTwoDir,"/L8_2013_2016_classified.tif")
+# shp <- "E:\\cade\\CommEcolProj\\Data\\Vector\\DifferentArea_CropBoxes\\shruti_waterways_merge.shp"
+# outDir <- "E:\\cade\\CommEcolProj\\Output/Classified_2013_2016_Jun6"
+# nameAppend = "crop" 
+# maskArea(L8_stack,shp,outDir,nameAppend)
+
+```
+
+** Read in both stacks and run through code to extract area** 
+
+```{r, eval = F}
+## List Files ####
+# List class files
+classOneList <- list.files(classOneDir, pattern = "Apr29\\.tif$", full.names = T)
+classTwoList <- list.files(classTwoDir, pattern = "Jun6\\.tif$", full.names = T)
+# full names
+fullNames <-  c(classOneList, classTwoList)
+# dates
+myDates <- str_extract(fullNames,"(2013|2014|2015|2016)\\d{4}")
+
+# read in stack
+classStackCrop <- stack(fullNames)
+names(classStackCrop) <- myDates
+```
+
+```{r}
+#determine unique classes and pixel size
+uniqueClasses <- unique(classStackCrop[[1]]) ## classes
+resSat <- res(classStackCrop[[1]]) # pixel resolution
+
+## List crop regions
+shapesDir <- "./Data/Vector/DifferentArea_CropBoxes"
+myShps <- c("BigBreak_Jun17_hyperbound","LibertyIsland_Jun17_hyperbound","ShermanIsland_Jun17_hyperbound","VeniceWard_Jun17_hyperbound","shruti_waterways_merge_hyperbound")
+
+```
+
+```{r}
+for (i in 1:length(myShps)) {
+  
+  # create area all dataframe with uniqueClasses
+  area.all <- data.frame(landcover = uniqueClasses)
+  
+  # read in shapefile
+  roi <- readOGR(dsn =shapesDir, layer = myShps[i]) #i
+  
+  #mask by shapefile
+  rast.crop <- mask(crop(classStackCrop, roi),roi, df=T)
+  
+  #add Shapefile name
+  area.all$Layer <- myShps[i] #i 
+  
+  ## crop raster to shapefile
+  for (j in 1:nlayers(rast.crop)){
+    # cropped layer
+    layer1 <- rast.crop[[j]] #j
+    mydate = gsub("X","",names(layer1))
+    layer.freq <- freq(layer1, useNA="no")
+    area_km2 <- data.frame(area_km2 = layer.freq[,"count"] * prod(resSat) *1e-06)
+    names(area_km2) <- mydate
+    area.all <- cbind(area_km2,area.all)
+  }
+  write_csv(area.all,paste0("./Output/AreaCalc_allYears/",myShps[i],".csv"))
+}
+
+##! layer.freq <- freq(rast.crop, useNA="no")
+```
+
+

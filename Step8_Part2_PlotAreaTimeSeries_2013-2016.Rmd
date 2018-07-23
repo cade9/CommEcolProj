@@ -1,0 +1,86 @@
+---
+title: "Step 8: Plot Area Timeseries from 2013-2016"
+output: html_notebook
+---
+
+
+## Description 
+Creates plots of area
+
+**Packages**
+```{r, message = F, warning = F}
+require(tidyverse)
+require(reshape2)
+require(ggplot2)
+require(lubridate)
+require(scales)
+require(ggthemes)
+require(dplyr)
+
+```
+
+### Step 1: List files
+```{r}
+areaDir <- "E:\\cade\\CommEcolProj\\Output\\AreaCalc_AllYears"
+myFiles <- list.files(areaDir, pattern =".csv", full.names = F)
+```
+
+```{r}
+for (i in 1:length(myFiles)){
+  # read in area csv and remove the unnecessary columns 
+  myArea <- read_csv(paste0(areaDir,"/",myFiles[i])) %>% # i
+    # write the landcovers correctly
+    mutate(landcover = c("EMR","FLT","SAV","Water")) %>%
+    melt() %>% 
+    as.tibble %>%
+    rename(Class = landcover, Layer = Layer, Date = 
+             variable, Area = value) %>%
+    mutate(Date = ymd(Date)) 
+    
+    
+  ##CLOSE
+  # test <- read_csv(paste0(areaDir,"/",myFiles[1])) %>% # i
+  #   # write the landcovers correctly
+  #   mutate(landcover = c("EMR","FLT","SAV","Water")) %>%
+  #   gather( key, value, -landcover)
+  #variable, value, age:height
+  
+  # Assign Area name
+  nameArea <- unique(myArea$Layer)
+  
+  # plot the scatter of all 4 variables
+  MyScatterplot <- myArea %>%
+    # Date V. Area, by class
+    ggplot(aes(x = Date, y = Area, col = Class)) +
+    geom_point() + 
+    geom_line() + 
+    scale_x_date(breaks = pretty_breaks(12)) + 
+    # breaks = seq(0, 10, by = 2)
+    scale_y_continuous(name ="Area (km^2)" ) +
+    scale_color_manual(values=c("#FFAA00","#C500FF"
+                           , "#55FF00","#0070FF")) +
+    theme_classic()
+  MyScatterplot
+
+  ggsave(paste0(areaDir,"/areaplot_colorCorrect_",nameArea,".png"))
+  
+  # plot all  without water 
+  noWater <- myArea %>% 
+    filter(!Class == "Water") %>%
+    ggplot(aes(x = Date, y = Area, col = Class)) +
+    geom_point() + 
+    geom_line() +
+    scale_x_date(breaks = pretty_breaks(12)) + 
+    # breaks = seq(0, 10, by = 2)
+    scale_y_continuous( name ="Area (km^2)") + 
+    scale_color_manual(values=c("#FFAA00", "#C500FF"
+                                , "#55FF00")) +
+    theme_classic()
+  noWater
+  ggsave(paste0(areaDir,"/areaplot_colorCorrect_",nameArea,"_nowater.png"))
+
+}
+
+
+```
+

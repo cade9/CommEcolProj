@@ -1,0 +1,74 @@
+---
+title: "Plots classifcations"
+output: html_notebook
+---
+
+```{r}
+library(rgeos)
+# List Directories
+classOneDir <- "./Output/Classified_Apr29"
+classTwoDir <- "./Output/Classified_2013_2016_Jun6"
+
+# List class files
+classOneList <- list.files(classOneDir, pattern = "Apr29\\.tif$", full.names = T)
+classTwoList <- list.files(classTwoDir, pattern = "Jun6\\.tif$", full.names = T)
+# full names
+fullNames <-  c(classOneList, classTwoList)
+# dates
+myDates <- str_extract(fullNames,"(2013|2014|2015|2016)\\d{4}")
+
+# read in stack
+cropStackOne <- list.files(classOneDir, pattern = "crop.*tif$", full.names = T)
+cropStackTwo <- list.files(classTwoDir, pattern = "crop.*tif$", full.names = T)
+# toh crop
+classList <- c(cropStackOne,cropStackTwo)
+classStackCrop <- stack(classList)
+names(classStackCrop) <- myDates
+
+
+```
+
+
+```{r}
+# make the rgb
+rgbGroup1 <- list.files("./Data/L8_2014-2015_test", patter = "\\.tif$", full.names = T)
+rgbGroup2 <- list.files("./Data/L8_2013_2016", patter = "\\.tif$", full.names = T)
+
+rgbFiles <- c(rgbGroup1, rgbGroup2)
+
+## List crop regions
+shapesDir <- "./Data/Vector/DifferentArea_CropBoxes"
+myShps <- c("BigBreak_Jun17_hyperbound","LibertyIsland_Jun17_hyperbound","ShermanIsland_Jun17_hyperbound","VeniceWard_Jun17_hyperbound","shruti_waterways_merge_hyperbound")
+
+
+
+
+rgbAreaPlot <- function(rastName,myShape){
+  rastName = rgbFiles[1]
+  myStack <- stack(rastName)
+  #myStack <- classStackCrop[[1]]
+  # read in shapefile
+  myShape = "BigBreak_Jun17_hyperbound"
+  shapesDir <- "./Data/Vector/DifferentArea_CropBoxes"
+  roi <- readOGR(dsn=shapesDir, layer = myShape) #i
+  
+  #mask by shapefile
+  rast.crop <- mask(crop(myStack, roi),roi, df=T)
+  
+  # date
+  rDate = str_extract(names(rastName),"(2013|2014|2015|2016)\\d{4}")
+  
+  # 
+  outDir = "./Figures/rgbCIR"
+  studyArea = unlist(strsplit(myShape,"_"))[1]
+  jpeg(filename= paste0(outDir,"\\L8_", rDate,"_"
+                        ,studyArea,"_FalseColor.jpeg"))
+  plot1 <- ggRGB(rast.crop, r= 6, g=5, b=4, stretch = 'lin') # true color
+  plot1
+  dev.off()
+  
+  
+}
+  
+```
+

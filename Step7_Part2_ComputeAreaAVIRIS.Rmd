@@ -1,0 +1,67 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# read in aviris images 
+shrutiCropList <- list.files(paste0(hyperDir,"/2015"), pattern = "\\.*tif$", full.names = T)[-c(1,7)]
+shrutiCropList
+
+shrutiSample <- raster(shrutiCropList[2])
+NAvalue(shrutiSample) <- 0
+
+#determine unique classes and raster size
+uniqueClasses <- unique(shrutiSample) ## classes
+resSat <- res(shrutiSample) # pixel resolution
+
+
+```
+
+```{r}
+areaData <- NULL
+for (i in 1:length(shrutiCropList)) {
+  #establish area all dataframe for calculated information
+  area.all <- data.frame(landcover = uniqueClasses)
+  
+  # subArea name
+  subArea <- unlist(strsplit(shrutiCropList[i],"[_]")) #i
+  subArea <- subArea[length(subArea)]
+  area.all$Layer <- subArea #i 
+  
+  # read in raster
+  layer1 <- raster(shrutiCropList[i]) #i
+  NAvalue(layer1) <- 0
+  
+  # calculate frequency and area
+    layer.freq <- freq(layer1, useNA="no")
+    area_km2 <- data.frame(area_km2 = layer.freq[,"count"] * prod(resSat) *1e-06)
+    
+  # cbind to other information
+    area.all <- cbind(area_km2,area.all)
+  # rbind outside dataframe
+    areaData <- rbind(area.all, areaData)
+    
+  }
+dirOut <- "./Output/CompareAVIRIS"
+write.csv(areaData,paste0(dirOut,"\\AVIRIS_2015_areaCounts.csv"), row.names=F )
+```
+
+```{r}
+# read in Aviris area file
+avirisArea <- read_csv(paste0(dirOut,"\\AVIRIS_2015_areaCounts.csv"))
+
+# L8 area files 
+areaDir <- "E:\\cade\\CommEcolProj\\Output\\AreaCalc_Apr29"
+myFiles <- list.files(areaDir, pattern =".csv", full.names = T)
+L8Area <- lapply(myFiles, read_csv)
+L8Area <- do.call("bind_rows", L8Area)
+
+names(L8Area) <- sub("X","",names(L8Area))
+L8Area <- L8Area %>% select(landcover,Layer, `20150812`)
+
+complete <- bind_cols(avirisArea,L8Area)
+write_csv(complete, paste0(dirOut,"\\AVIRIS_compareL8.csv"))
+
+```
+

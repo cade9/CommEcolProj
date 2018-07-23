@@ -1,0 +1,140 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+### Description
+This counts the number of dates a certain point of interest appears (roi) by coordinate and class for the years of 2014 and 2015. 
+IT is based on 
+Step4_CountEachRoi.r 
+
+```{r}
+#require packages
+require(tidyverse)
+require(dplyr)
+require(data.table)
+require(rgdal)
+require(stringr)
+require(raster)
+```
+
+```{r}
+#import test and trainingdata
+# the trainging and test data were separated
+# combine together 
+listF <- list.files(".\\Data\\L8_2014-2015_test", pattern = "Apr29", full.names = T)
+test1 <- read_csv(listF[1])
+test2 <- read_csv(listF[2])
+
+```
+
+
+```{r}
+### Clean data and add information
+# bind training and test data
+pointsData <- bind_rows(test1,test2) %>%
+# add new column that excludes date from the unique ID
+mutate(roiID = paste0(Class,"_",coords.x1,
+		"E_",coords.x2,"N")) 
+
+### determine counts per roiID
+ex.dt <- as.data.table(pointsData)
+by.roi = ex.dt[,.(count= .N), by= .(roiID,Date)]
+by.Date.roi <- spread(data=by.roi, key= Date, count)
+#write_csv(by.Date.roi, "./Data/ancillary/L8_2014_2015_unqiueIDCounts.csv")
+
+# manipulate data
+myData <- by.Date.roi %>%
+  # create total column that sumss the rows except for the first one which has the IDs
+  mutate(total = rowSums( .[,-1], na.rm = T),
+         # create class column to group by
+        class = str_extract(roiID,"(EMR|FLT|SAV|water)"),
+        # add coordinates x and y
+        coordX = as.numeric(str_extract(roiID, "\\d{6}(?=E)")),
+        coordY = as.numeric(str_extract(roiID, "\\d{7}(?=N)"))
+        ) %>%
+  # order by the total column 
+  arrange(desc(total)) %>%
+  # group by class
+  group_by(class) %>%
+  # nest tibble
+  nest() %>%
+  # overrwrite data to filter the totals that are greater than or equal to 15
+  # write filter = map9... to make a fullt tibble that keeps older data and new data
+  # #https://stackoverflow.com/questions/44852512/dplyrselect-of-nested-data-frame
+  # https://stackoverflow.com/questions/47166360/use-filter-and-other-dplyr-functions-inside-nested-data-frames-with-map'
+  # good regex resource 
+  # https://stackoverflow.com/questions/27273996/str-extract-specific-patterns-example
+  mutate(data = map(data, ~filter(., total >= 15))) 
+
+# we should then probably filter the data in the shapefiles by this rather than make new sshapefiles?
+# nah we just make a new coordinate x and y column or dont deselect it before
+
+temp <- df %>% by_row(~write.csv(.$data, file = .$dataset))
+
+```
+
+
+
+```{r}
+# write to shapefile
+myD <- "./Data/Vector/UnqID"
+
+for (i in 1:4){
+  ## Create spatialpoints dataframe
+  # read in specific dataframe
+  df <- myData$data[[i]] #i
+  # determine last column to sample
+  endCol <- ncol(df)
+  # create spatial points dataframe
+  df.sp <-  SpatialPointsDataFrame(df[, c("coordX", "coordY")],
+  data = df[1:endCol])
+  # project data
+   proj4string(df.sp) <- "+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  
+   ## Create file name 
+   # determine class 
+  classN <- str_extract(df$roiID[1],"(EMR|FLT|SAV|water)")
+  # full file name
+  nameFile = paste0(classN, "_commonUniqueID")
+  # save shapefile
+  writeOGR(df.sp, dsn = myD, layer = nameFile , driver = "ESRI Shapefile", overwrite_layer = T)
+
+}
+
+m <- raster("E:\\cade\\CommEcolProj\\Data\\L8_2014-2015_test\\LC080440332014011301T1_SR.tif")
+
+map(myData, writeToShape)
+
+ # coordinates(df.sp) <- c("coordX", "coordY")
+  
+ # proj4string(df.sp) <- "+: EPSG:4326"
+```
+
+
+```{r}
+# read in shapefiles
+shpList <- str_subset(listF, "shp")
+testShp <- readOGR(shpList[1]) 
+trainShp <- readOGR(shpList[2]) 
+
+shpFile <- union(testShp,trainShp)
+
+test1 <- "FLT_627975E_4213515N"
+str_extract(test1, "\\d{6}(?=N)")
+
+"\\d{2}(?=\\.)"
+```
+
+```{r}
+# create csv with uniqueID names to make notes
+myD <- "./Data/Vector/UnqID"
+#shpList <- str_extract(list.files(myD, pattern = "shp"), "[a-zA-Z]{4}(?=shp)")
+shpList <- gsub(".shp","",list.files(myD, pattern = "shp"))
+
+for (i in 1:4){
+  roi
+}
+```
+
+
