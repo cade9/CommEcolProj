@@ -1,0 +1,138 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#### Description
+Identifies which ROIs were actually matched up correctly
+
+```{r}
+require(raster)
+require(tidyverse)
+require(stringr)
+require(rgdal)
+require(ggplot2)
+require(ggthemes)
+require(lubridate)
+require(readxl)
+require(patchwork)
+library(gridExtra)
+library(grid)
+library(lattice)
+require(reshape2)
+require(scales)
+require(dplyr)
+```
+
+##### Step 1: Load information and shapefiles
+
+```{r}
+#  shapefile directory for the common roiIDs
+shpDir <- "./Data/Vector/UnqID"
+
+# read in individual merged file
+# the four shpLists were combinded above in QGIS
+# vector -> merge layer factors -> merge vector files
+myRoi <- readOGR(shpDir, "combine_commonUniqueID")
+# select columns of interest
+myRoi@data <- myRoi@data %>% dplyr::select(roiID,total)
+
+# rasterList of the cropHyperBound tifs
+rastClass <- list.files(c("./Output/Classified_2013_2016_Jun6","./Output/Classified_Apr29"), pattern= "stack_cropHyperBound\\.tif$", full.names = T)
+
+# list individually classified rasters to extract the dates
+rastList <- list.files(c("./Output/Classified_2013_2016_Jun6","./Output/Classified_Apr29"), pattern= "60_Apr29\\.tif$|60_Jun6\\.tif$", full.names = T)
+# extract dates 
+myDates <- na.omit(str_extract(rastList,"(2013|2014|2015|2016)\\d{4}"))
+
+```
+
+##### Step 2: Extract information
+```{r}
+###### Extract class information#
+# stack of stacked cropped rasters
+myR <- stack(rastClass[1:2])
+# name the stack the dates you extracted
+names(myR) <- myDates
+
+# extract information using ROIS
+extClass <- raster::extract(myR, myRoi, sp = T)
+
+#### Edit the dataframe of the point shapefile 
+# Calculate the total of times a point is identified incorrectly 
+extClass@data <- extClass@data %>%
+  # add a class column
+  mutate(classN = str_extract(roiID, "EMR|FLT|SAV|water")) %>%
+  # count the number of times a certain value occurs corresponding to what class it is
+  mutate(emrCount = rowSums( .[-c(1:2)] == 1),
+         fltCount = rowSums( .[-c(1:2)] == 2),
+         savCount = rowSums( .[-c(1:2)] == 3),
+         waterCount = rowSums( .[-c(1:2)] == 4))
+
+# write out shapefile 
+#writeOGR(extClass,dsn = shpDir, layer = "combine_commonUniqueID_classExtractions", drive = "ESRI Shapefile")
+## written 7/26/2018
+
+```
+
+#### plot how the information is changing over time
+
+```{r}
+extractInfo <- extClass@data %>%
+  select(-total,-classN,-emrCount,-fltCount,-savCount,-waterCount) %>%
+  reshape2::melt() %>%
+  as.tibble() %>%
+  mutate(variable = str_extract(variable,"(?<=X).{8}"),
+         myDate = ymd(variable),
+         rYear = year(myDate)) %>%
+  rename(dataChr = variable, classNumber = value) %>%
+  group_by(roiID, rYear)
+
+
+  
+  plotClassChange <- extractInfo %>%
+    do( 
+      plots = ggplot(data = .,aes(y= classNumber, x = myDate)) +
+        geom_line(size=1) + scale_y_continuous(breaks = seq(0, 4, 1)) +scale_x_date(breaks = pretty_breaks(9)) +ggtitle(paste0(.$roiID,"_",.$rYear)))
+
+  
+outDir <- "./Data/ancillary/uniROIClassChangePlots"
+roiUni <- unique(plotClassChange$roiID)
+for (i in 1:length(roiUni)){
+  roiName <- roiUni[i] #i
+  plot1 <- plotClassChange %>% filter(roiID == roiName)
+    
+  p1 <- plot1$plots[[1]]
+  p2 <- plot1$plots[[2]]
+  p3 <- plot1$plots[[3]]
+  p4 <- plot1$plots[[4]]
+  #chart$plots[1][[1]]
+  myPlot <- p1+p2 + p3 +p4 
+  
+  # filename
+  
+  myFile <- paste0(outDir,"/",roiName,".png")
+  
+  ggsave(myPlot,filename=myFile,width=13.66,height=7.05,limitsize = FALSE) 
+  }
+```
+
+
+
+
+##### Test and discards
+```{r}
+#test area for dataset working on dataframe world
+# myExtractTest <- myData@data%>%
+#   # add a class column
+#   mutate(classN = str_extract(roiID, "EMR|FLT|SAV|water")) %>%
+#   mutate(emrCount = rowSums( .[-c(1:2)] == 1),
+#          fltCount = rowSums( .[-c(1:2)] == 2),
+#          savCount = rowSums( .[-c(1:2)] == 3),
+#          waterCount = rowSums( .[-c(1:2)] == 4)) 
+
+# # table of className and numbers
+# classInfo <- tibble( className = c("EMR","FLT","SAV","water"),
+                     classNumber = seq(1,4,1))
+```
+
